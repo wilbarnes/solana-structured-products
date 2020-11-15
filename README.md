@@ -25,11 +25,11 @@ While in `src/client/`, run `ts-node main.ts` to deploy two SPL-tokens (for indi
 1. Deploy two SPL-Tokens (to mock two separate assets (e.g. USDC and YFI)).
 2. Mint tokens to a user for each SPL token.
 3. Call the vault program, which will create an intermediary account for the user to fund.
-4. User funds the intermediary accound, and the funds are routed to a pool program.
+4. User funds the intermediary account, and the funds are routed to a pool program.
 5. Pool does actions.
 6. Both users withdraw their funds (though a structured product will most likely require locked assets with a maturity date).
 
-**NOTE:** it is not complete, I just simply didn't have the time to implement much.
+**NOTE:** it is not complete, I just simply didn't have the time to implement the whole thing.
 
 # What is the product?
 
