@@ -1,8 +1,8 @@
 # solana-structured-products
 
 Wil Barnes
-currently independently R&Ding structured products and yield strategies
-previously smart contracts dev @ Maker Foundation and ConsenSys
+- currently independently R&Ding structured products and yield strategies
+- previously smart contracts dev @ Maker Foundation and ConsenSys
 
 ## Goal
 To build a structured product allowing users to match and lock single deposits with the shared goal of executing a particular trading strategy, coupled with position management bots that read and respond to SerumDEX market data.
