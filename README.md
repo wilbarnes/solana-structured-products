@@ -49,7 +49,7 @@ The drone is the off-chain worker, or in other parlance: "keeper", "bot", that p
 
 ## This seems just like X, Y, Z on Ethereum..
 
-Sure, though the same could be said aboout Ethereum products and traditional finance.
+Sure, though the same could be said about Ethereum products and traditional finance.
 
 The intricacy of algorithmic market-making and arbitrage on Ethereum is immense, though I'm interested in porting these primitives into a high-throughput, scalable layer 1.
 
