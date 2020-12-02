@@ -12,6 +12,8 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
+use spl_associated_token_account::*;
+
 entrypoint!(process_instruction);
 fn process_instruction(
     program_id: &Pubkey,
@@ -126,52 +128,40 @@ fn process_instruction(
             )
         }
         Some(2) => {
-            info!("Let's create two associated-program tokens...");
-            info!("...allowing us to match user deposits");
+            info!("Let's create one associated-program tokens addresses...");
 
             let account_info_iter = &mut accounts.iter();
 
-            // SPL token asset 1 address
-            let spl_asset_one = next_account_info(account_info_iter)?;
-            // SPL token asset 2 address
-            let spl_asset_two= next_account_info(account_info_iter)?;
-
-            // found account for the first asset
-            let program_token_info_asset1 = next_account_info(account_info_iter)?;
-            // found account for the second asset
-            let program_token_info_asset2 = next_account_info(account_info_iter)?;
-
+            let wallet_address      = next_account_info(account_info_iter)?; // wallet address
+            let ext_spl_token_mint  = next_account_info(account_info_iter)?; // external spl token mint
+            let program_token_info  = next_account_info(account_info_iter)?; // associated account
             let system_program_info = next_account_info(account_info_iter)?;
-            let asset1seed = next_account_info(account_info_iter)?;
-            let asset2seed = next_account_info(account_info_iter)?;
-            // programId is always this programId
-
-            let mint_info = next_account_info(account_info_iter)?;
+            let mint_info           = next_account_info(account_info_iter)?;
 
             let (
-                program_token_address,      // associated program account 1
-                program_token_bump_seed
+                program_token_address,      // Pubkey, valid program address
+                program_token_bump_seed     // u8, bump seed
             ) =
-                Pubkey::find_program_address(&[br"asset-one"], program_id);
-
-            if program_token_address != *program_token_info_asset1.key {
+                Pubkey::find_program_address(
+                    &[
+                         &wallet_address.key.to_bytes(),
+                         &spl_token::id().to_bytes(),
+                         &ext_spl_token_mint.key.to_bytes(),
+                    ], 
+                    &spl_associated_token_account::id(),
+                );
+            
+            if program_token_address != *program_token_info.key {
                 info!("Error: program token asset 1 address derivation mismatch");
                 return Err(ProgramError::InvalidArgument);
             }
 
-            let (
-                program_token_address2,     // associated program account 2
-                program_token_bump_seed2
-            ) =
-                Pubkey::find_program_address(&[br"asset-two"], program_id);
-
-            if program_token_address2 != *program_token_info_asset2.key {
-                info!("Error: program token asset 2 address derivation mismatch");
-                return Err(ProgramError::InvalidArgument);
-            }
-
             let program_token_signer_seeds: &[&[_]] = &[
-                br"program-token", &[program_token_bump_seed]
+                 &wallet_address.key.to_bytes(),
+                 &spl_token::id().to_bytes(),
+                 &ext_spl_token_mint.key.to_bytes(),
+                 &spl_associated_token_account::id().to_bytes(),
+                 &[program_token_bump_seed],
             ];
 
             let funder_info = next_account_info(account_info_iter)?;
@@ -180,69 +170,40 @@ fn process_instruction(
             let rent_sysvar_info = next_account_info(account_info_iter)?;
             let rent = &Rent::from_account_info(rent_sysvar_info)?;
 
-            invoke_signed(
-                &system_instruction::create_account(
-                    funder_info.key,
-                    program_token_info_asset1.key,
-                    1.max(rent.minimum_balance(spl_token::state::Account::get_packed_len())),
-                    spl_token::state::Account::get_packed_len() as u64,
-                    spl_asset_one.key
-                ),
-                &[
-                    funder_info.clone(),
-                    program_token_info_asset1.clone(),
-                    system_program_info.clone(),
-                ],
-                &[&program_token_signer_seeds],
-            )?;
+            // invoke_signed(
+            //     &system_instruction::create_account(
+            //         funder_info.key,
+            //         program_token_info.key,
+            //         1.max(rent.minimum_balance(spl_token::state::Account::get_packed_len())),
+            //         spl_token::state::Account::get_packed_len() as u64,
+            //         &spl_token::id(),
+            //     ),
+            //     &[
+            //         funder_info.clone(),
+            //         program_token_info.clone(),
+            //         system_program_info.clone(),
+            //     ],
+            //     &[&program_token_signer_seeds],
+            // )?;
 
-            info!("Initializing program token account 1");
-            invoke(
-                &spl_token::instruction::initialize_account(
-                    spl_asset_one.key,
-                    program_token_info_asset1.key,
-                    mint_info.key,
-                    program_token_info_asset1.key, // token owner is also `program_token` address
-                )?,
-                &[
-                    program_token_info_asset1.clone(),
-                    spl_token_program_info.clone(),
-                    rent_sysvar_info.clone(),
-                    mint_info.clone(),
-                ],
-            )?;
-
-            invoke_signed(
-                &system_instruction::create_account(
-                    funder_info.key,
-                    program_token_info_asset1.key,
-                    1.max(rent.minimum_balance(spl_token::state::Account::get_packed_len())),
-                    spl_token::state::Account::get_packed_len() as u64,
-                    spl_asset_one.key
-                ),
-                &[
-                    funder_info.clone(),
-                    program_token_info_asset1.clone(),
-                    system_program_info.clone(),
-                ],
-                &[&program_token_signer_seeds],
-            )?;
-
-            info!("Initializing program token account 2");
-            invoke(
-                &spl_token::instruction::initialize_account(
-                    spl_asset_one.key,
-                    program_token_info_asset1.key,
-                    mint_info.key,
-                    program_token_info_asset1.key, // token owner is also `program_token` address
-                )?,
-                &[
-                    program_token_info_asset1.clone(),
-                    spl_token_program_info.clone(),
-                    rent_sysvar_info.clone(),
-                    mint_info.clone(),
-                ],
-            )?;
+            // info!("Initializing program token account 1");
+            // invoke(
+            //     &spl_token::instruction::initialize_account(
+            //         &spl_token::id(),
+            //         // &program_token_address,
+            //         program_token_info.key,
+            //         mint_info.key,
+            //         program_token_info.key,
+            //         // &program_token_address, // token owner is also `program_token` address
+            //     )?,
+            //     &[
+            //         program_token_info.clone(),
+            //         // program_token_address.clone(),
+            //         spl_token_program_info.clone(),
+            //         rent_sysvar_info.clone(),
+            //         mint_info.clone(),
+            //     ],
+            // )?;
             Ok(())
         }
         _ => {
@@ -310,6 +271,7 @@ mod test {
             &[Instruction {
                 program_id,
                 accounts: vec![
+                    AccountMeta::new(program_token_address, false),
                     // program_token_address uses the base program's programId
                     AccountMeta::new(program_token_address, false),
                     // payer (funder)

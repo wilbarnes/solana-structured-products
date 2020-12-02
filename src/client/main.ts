@@ -2,6 +2,8 @@ import {
     establishConnection,
     establishPayer,
     createPairOfTokens,
+    loadProgram,
+    createAddresses,
 } from './tranches';
 
 async function main() {
@@ -10,6 +12,8 @@ async function main() {
     await establishConnection();
     await establishPayer();
     await createPairOfTokens();
+    await loadProgram();
+    await createAddresses();
     
     console.log('Success');
 }

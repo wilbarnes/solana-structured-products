@@ -4,7 +4,8 @@ import {sleep} from './sleep';
 
 export async function newAccountWithLamports(
   connection: Connection,
-  lamports = 1000000,
+    // lamports = 1000000,
+  lamports = 20000000000,
 ): Promise<Account> {
   const account = new Account();
 

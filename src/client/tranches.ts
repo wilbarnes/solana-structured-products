@@ -9,14 +9,18 @@ import {
     TransactionInstruction,
     SYSVAR_RENT_PUBKEY,
     Transaction,
-    // sendAndConfirmTransaction,
+    sendAndConfirmTransaction,
 } from '@solana/web3.js';
+
+import {
+    Token,
+} from '@solana/spl-token';
 
 import * as Layout from './layout';
 
 import fs from 'mz/fs';
 
-import {sendAndConfirmTransaction} from './utils/send-and-confirm-transactions';
+// import {sendAndConfirmTransaction} from './utils/send-and-confirm-transactions';
 import {newAccountWithLamports} from './utils/new-account-with-lamports';
 import {Store} from "./utils/store";
 
@@ -26,20 +30,17 @@ import BufferLayout from 'buffer-layout';
 let accountUsdc: Account;
 let accountSol: Account;
 
-// hacky solution for seed b/c i can't get toBuffer() to work elsewhere
-let seed1: PublicKey = new Account().publicKey;
-let seed2: PublicKey = new Account().publicKey;
-
 // structured product account
-let programId: Account;
+let programAccount: Account;
 
 let payerAccount: Account;
+let payerAccount2: Account;
 let connection: Connection;
 let rentExemption: number;
 let token: Account;
 
-let mintAccount1: Account;
-let mintAccount2: Account;
+let tokenAccount1: Account;
+let tokenAccount2: Account;
 
 let freezeAccount: Account;
 
@@ -48,6 +49,20 @@ const pathToProgram = '../tranched-liquidity/target/bpfel-unknown-unknown/releas
 const TOKEN_PROGRAM_ID: PublicKey = new PublicKey(
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
 );
+
+const ASSOC_TOKEN_ID: PublicKey = new PublicKey(
+    'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+);
+
+const SYSTEM_PROGRAM_ID: PublicKey = new PublicKey(
+    '11111111111111111111111111111111',
+);
+
+const NATIVEMINT_PROGRAM_ID: PublicKey = new PublicKey(
+    'So11111111111111111111111111111111111111112',
+);
+
+
 
 export async function establishConnection(): Promise<void> {
     connection = new Connection('http://devnet.solana.com', 'singleGossip');
@@ -70,9 +85,10 @@ export async function establishPayer(): Promise<void> {
 
         fees += feeCalculator.lamportsPerSignature * 100;
 
-        payerAccount = await newAccountWithLamports(connection, fees);
-        accountUsdc = await newAccountWithLamports(connection, fees);
-        accountSol = await newAccountWithLamports(connection, fees);
+        console.log('amount of fees:', fees);
+
+        payerAccount = await newAccountWithLamports(connection, 4911830720);
+        payerAccount2 = await newAccountWithLamports(connection, 4911830720);
     }
 
     const lamports = await connection.getBalance(payerAccount.publicKey);
@@ -99,10 +115,10 @@ export async function createPairOfTokens(): Promise<void> {
     rentExemption = await connection.getMinimumBalanceForRentExemption(82);
 
     token = new Account();
-    mintAccount1 = new Account();
-    mintAccount2 = new Account();
+    tokenAccount1 = new Account();
+    tokenAccount2 = new Account();
 
-    console.log('Creating token address 1', mintAccount1.publicKey.toBase58());
+    console.log('Creating token address 1', tokenAccount1.publicKey.toBase58());
     console.log('Payer account:', payerAccount.publicKey.toBase58());
 
     const tx = new Transaction();
@@ -110,7 +126,7 @@ export async function createPairOfTokens(): Promise<void> {
     tx.add(
         SystemProgram.createAccount({
             fromPubkey: payerAccount.publicKey,
-            newAccountPubkey: mintAccount1.publicKey,
+            newAccountPubkey: tokenAccount1.publicKey,
             lamports: rentExemption,
             space: MintLayout.span,
             programId: TOKEN_PROGRAM_ID,
@@ -118,7 +134,7 @@ export async function createPairOfTokens(): Promise<void> {
     );
 
     let keys = [
-        {pubkey: mintAccount1.publicKey, isSigner: false, isWritable: true},
+        {pubkey: tokenAccount1.publicKey, isSigner: false, isWritable: true},
         {pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
     ];
 
@@ -136,7 +152,7 @@ export async function createPairOfTokens(): Promise<void> {
                 instruction: 0,
                 decimals: 18,
                 mintAuthority: payerAccount.publicKey.toBuffer(),
-                option: 1,
+                option: 0,
                 freezeAuthority: payerAccount.publicKey.toBuffer(),
             },
             data,
@@ -153,71 +169,14 @@ export async function createPairOfTokens(): Promise<void> {
     tx.add(tx2);
 
     await sendAndConfirmTransaction(
-        'createAccount and InitializeMint',
         connection,
         tx,
-        payerAccount, 
-        mintAccount1,
-        // mintAccount,
-    );
-
-    console.log('Creating token address 2', mintAccount2.publicKey.toBase58());
-    console.log('Payer account:', payerAccount.publicKey.toBase58());
-
-    const newtx = new Transaction();
-
-    newtx.add(
-        SystemProgram.createAccount({
-            fromPubkey: payerAccount.publicKey,
-            newAccountPubkey: mintAccount2.publicKey,
-            lamports: rentExemption,
-            space: MintLayout.span,
-            programId: TOKEN_PROGRAM_ID,
-        }),
-    );
-
-    let newkeys = [
-        {pubkey: mintAccount2.publicKey, isSigner: false, isWritable: true},
-        {pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
-    ];
-
-    const newcommandDataLayout = BufferLayout.struct([
-        BufferLayout.u8('instruction'),
-        BufferLayout.u8('decimals'),
-        Layout.publicKey('mintAuthority'),
-        BufferLayout.u8('option'),
-        Layout.publicKey('freezeAuthority'),
-    ]);
-    let newdata = Buffer.alloc(1024);
-    {
-        const encodeLength = newcommandDataLayout.encode(
-            {
-                instruction: 0,
-                decimals: 18,
-                mintAuthority: payerAccount.publicKey.toBuffer(),
-                option: 1,
-                freezeAuthority: payerAccount.publicKey.toBuffer(),
-            },
-            newdata,
-        );
-        newdata = newdata.slice(0, encodeLength);
-    }
-
-    let newtx2 = new TransactionInstruction({
-        keys: newkeys,
-        programId: TOKEN_PROGRAM_ID,
-        data: newdata,
-    });
-
-    newtx.add(newtx2);
-
-    await sendAndConfirmTransaction(
-        'createAccount and InitializeMint',
-        connection,
-        newtx,
-        payerAccount, 
-        mintAccount2,
-    );
+        [payerAccount, tokenAccount1],
+        {
+            commitment: 'singleGossip',
+            preflightCommitment: 'singleGossip',
+        },
+    )
 }
 
 // export async function mintToPayerForBothTokens(): Promise<void> {
@@ -247,12 +206,12 @@ export async function createPairOfTokens(): Promise<void> {
 // 
 //     let tx1 = new TransactionInstruction({
 //         keys: keys,
-//         programId: mintAccount1,
+//         programId: tokenAccount1,
 //         data: data,
 //     });
 //     let tx2 = new TransactionInstruction({
 //         keys: keys,
-//         programId: mintAccount2,
+//         programId: tokenAccount2,
 //         data: data,
 //     });
 // }
@@ -273,7 +232,7 @@ export async function loadProgram(): Promise<void> {
     // load the program
     console.log('Loading structured product program...');
     const data = await fs.readFile(pathToProgram);
-    const programAccount = new Account();
+    programAccount = new Account();
     await BpfLoader.load(
         connection,
         payerAccount,
@@ -281,25 +240,128 @@ export async function loadProgram(): Promise<void> {
         data,
         BPF_LOADER_PROGRAM_ID,
     );
-    const tempprogramId = programAccount.publicKey;
-    console.log('program loaded to account:', tempprogramId.toBase58());
+    // prodProgramId = programAccount.publicKey;
+    console.log('program loaded to account:', programAccount.publicKey.toBase58());
 }
 
 export async function createAddresses(): Promise<void> {
-    console.log('Creating two asset address...');
+    console.log('Creating an asset address...');
+    // payerAccount2 = new Account();
 
-    const asset1seed = seed1.toBuffer();
-    const asset2seed = seed2.toBuffer();
-    
-    const prog_token_addr1 = PublicKey.findProgramAddress([asset1seed], mintAccount1.publicKey);
-    const prog_token_addr2 = PublicKey.findProgramAddress([asset2seed], mintAccount2.publicKey);
+    const newToken: Token = await Token.createMint(
+        connection,
+        payerAccount,
+        payerAccount.publicKey,
+        null,
+        6,
+        TOKEN_PROGRAM_ID,
+    );
+    console.log('token programId:', newToken.publicKey.toBase58());
+
+    let newAccount1 = await newToken.createAccount(
+        payerAccount.publicKey,
+    );
+    console.log('newAccount1', newAccount1.toBase58());
+
+    let newAccount2 = await newToken.createAccount(
+        payerAccount.publicKey,
+    );
+    console.log('newAccount2', newAccount2.toBase58());
+
+    await newToken.mintTo(
+        newAccount1,
+        payerAccount.publicKey,
+        [],
+        1337000000,
+    );
+
+    let txSig = await newToken.transfer(
+        newAccount1,
+        newAccount2,
+        payerAccount,
+        [],
+        731000000,
+    );
+
+    let myAccountInfo1 = await newToken.getAccountInfo(
+        newAccount1,
+    );
+    console.log('myaccountinfo1:', myAccountInfo1);
+    console.log('new account 1 mint:', myAccountInfo1.mint.toBase58());
+
+    // const asset1seed = Buffer.from(newAccount1, 'utf8');
+
+    const [
+        prog_token_addr, 
+        bump_seed
+    ] = await PublicKey.findProgramAddress(
+        [
+            newAccount1.toBuffer(), 
+            TOKEN_PROGRAM_ID.toBuffer(),
+            newToken.publicKey.toBuffer()
+        ], 
+        ASSOC_TOKEN_ID, 
+    );
+
+    console.log('prog_token_addr:', prog_token_addr.toBase58());
 
     let keys = [
-        {pubkey: mintAccount1, isSigner: false, isWritable: true},
-        {pubkey: mintAccount2, isSigner: false, isWritable: true},
-        {pubkey: prog_token_addr1, isSigner: false, isWritable: true},
-        {pubkey: prog_token_addr2, isSigner: false, isWritable: true},
-
+        {pubkey: newAccount1,               isSigner: false, isWritable: false},
+        {pubkey: newToken.publicKey,        isSigner: false, isWritable: false},
+        {pubkey: prog_token_addr,           isSigner: false, isWritable: false},
+        {pubkey: SYSTEM_PROGRAM_ID,         isSigner: false, isWritable: false},
+        {pubkey: NATIVEMINT_PROGRAM_ID,     isSigner: false, isWritable: false},
+        {pubkey: payerAccount.publicKey,    isSigner: true,  isWritable: true },
+        {pubkey: TOKEN_PROGRAM_ID,          isSigner: false, isWritable: false},
+        {pubkey: SYSVAR_RENT_PUBKEY,        isSigner: false, isWritable: false},
     ];
+
+    const commandDataLayout = BufferLayout.struct([
+        BufferLayout.u8('instruction'),
+    ]);
+    let data = Buffer.alloc(1024);
+    {
+        const encodeLength = commandDataLayout.encode(
+            {
+                instruction: 2
+            },
+            data,
+        );
+        data = data.slice(0, encodeLength);
+    }
+
+    const tx = new Transaction();
+    let instr = new TransactionInstruction({
+        keys: keys,
+        programId: programAccount.publicKey,
+        // programId: TOKEN_PROGRAM_ID,
+        data: data,
+    });
+    tx.add(instr);
+
+    console.log('payerAccount:', payerAccount.publicKey);
+    console.log('programAccount:', programAccount.publicKey);
+
+    await sendAndConfirmTransaction(
+        connection,
+        tx,
+        [payerAccount],
+        {
+            commitment: 'singleGossip',
+            preflightCommitment: 'singleGossip',
+        },
+    )
+
+    console.log('prog_token_addr:', prog_token_addr);
+    let txSig2 = await newToken.transfer(
+        newAccount1,
+        prog_token_addr,
+        payerAccount,
+        [],
+        13000000,
+    );
+}
+
+export async function transferToCreatedAccount(): Promise<void> {
 
 }

@@ -5,6 +5,7 @@ edition = "2018"
 license = "WTFPL"
 
 [dependencies]
+spl-associated-token-account = { version = "1.0.1", features = ["no-entrypoint"] }
 solana-program = "1.4.6"
 spl-token = { version = "3.0.0", features = ["no-entrypoint"]}
 
