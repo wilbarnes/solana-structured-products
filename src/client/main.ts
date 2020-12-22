@@ -1,19 +1,19 @@
 import {
     establishConnection,
     establishPayer,
-    createPairOfTokens,
     loadProgram,
-    createAddresses,
+    createTokensAndAddresses,
+    depositAssets,
 } from './tranches';
 
 async function main() {
-    console.log("Let's create two SPL Tokens...");
+    console.log("Creating accounts, tokens, and simulating derivative product...");
 
     await establishConnection();
     await establishPayer();
-    await createPairOfTokens();
     await loadProgram();
-    await createAddresses();
+    await createTokensAndAddresses();
+    await depositAssets();
     
     console.log('Success');
 }

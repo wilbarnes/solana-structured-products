@@ -12,7 +12,7 @@ use solana_program::{
     sysvar::Sysvar,
 };
 
-use spl_associated_token_account::*;
+use spl_token::*;
 
 entrypoint!(process_instruction);
 fn process_instruction(
@@ -29,33 +29,42 @@ fn process_instruction(
 
     match instruction_data.get(0) {
         Some(0) => {
-            info!("Create account...");
+            info!("Adding asset reserve to the structured investment...");
+            
+            // TODO: some authentication, only allowed to be done by fund managers
+
             let account_info_iter = &mut accounts.iter();
-            let program_token_info = next_account_info(account_info_iter)?;
-            let (program_token_address, program_token_bump_seed) =
-                Pubkey::find_program_address(&[br"program-token"], program_id);
+
+            let ext_spl_token_mint      = next_account_info(account_info_iter)?; // external spl token mint
+            let program_token_info      = next_account_info(account_info_iter)?; // associated account
+            let system_program_info     = next_account_info(account_info_iter)?;
+            let funder_info             = next_account_info(account_info_iter)?;
+            let spl_token_program_info  = next_account_info(account_info_iter)?;
+            let rent_sysvar_info        = next_account_info(account_info_iter)?;
+            let rent                    = &Rent::from_account_info(rent_sysvar_info)?;
+
+            let (
+                program_token_address,      // Pubkey, valid program address
+                program_token_bump_seed     // u8, bump seed
+            ) =
+                Pubkey::find_program_address(
+                    &[
+                         &spl_token::id().to_bytes(),
+                         &ext_spl_token_mint.key.to_bytes(),
+                    ], 
+                    program_id,
+            );
 
             if program_token_address != *program_token_info.key {
-                info!("Error: program token address derivation mismatch");
+                info!("Error: program token asset 1 address derivation mismatch");
                 return Err(ProgramError::InvalidArgument);
             }
 
             let program_token_signer_seeds: &[&[_]] = &[
-                br"program-token", &[program_token_bump_seed]
+                 &spl_token::id().to_bytes(),
+                 &ext_spl_token_mint.key.to_bytes(),
+                 &[program_token_bump_seed],
             ];
-
-            // payer.pubkey()
-            let funder_info = next_account_info(account_info_iter)?;
-            // spl_token::native_mint::id()
-            let mint_info = next_account_info(account_info_iter)?;
-            // solana_program::system_program::id()
-            let system_program_info = next_account_info(account_info_iter)?;
-            // spl_token::id()
-            let spl_token_program_info = next_account_info(account_info_iter)?;
-            // sysvar::rent::id()
-            let rent_sysvar_info = next_account_info(account_info_iter)?;
-
-            let rent = &Rent::from_account_info(rent_sysvar_info)?;
 
             invoke_signed(
                 &system_instruction::create_account(
@@ -73,137 +82,95 @@ fn process_instruction(
                 &[&program_token_signer_seeds],
             )?;
 
-            info!("Initializing program token account");
+            info!("Initializing asset reserve account");
             invoke(
                 &spl_token::instruction::initialize_account(
                     &spl_token::id(),
                     program_token_info.key,
-                    mint_info.key,
-                    program_token_info.key, // token owner is also `program_token` address
+                    ext_spl_token_mint.key,
+                    program_token_info.key,
                 )?,
                 &[
                     program_token_info.clone(),
+                    ext_spl_token_mint.clone(),
                     spl_token_program_info.clone(),
                     rent_sysvar_info.clone(),
-                    mint_info.clone(),
                 ],
             )?;
+
             Ok(())
         }
         Some(1) => {
-            info!("Close program token account...");
-
-            let account_info_iter = &mut accounts.iter();
-            let program_token_info = next_account_info(account_info_iter)?;
-            let (program_token_address, program_token_bump_seed) =
-                Pubkey::find_program_address(&[br"program-token"], program_id);
-
-            if program_token_address != *program_token_info.key {
-                info!("Error: program token address derivation mismatch");
-                return Err(ProgramError::InvalidArgument);
-            }
-
-            let program_token_signer_seeds: &[&[_]] = &[
-                br"program-token", &[program_token_bump_seed]
-            ];
-
-            let funder_info = next_account_info(account_info_iter)?;
-            let spl_token_program_info = next_account_info(account_info_iter)?;
-
-            invoke_signed(
-                &spl_token::instruction::close_account(
-                    &spl_token::id(),
-                    program_token_info.key,
-                    funder_info.key,
-                    program_token_info.key, // token owner is also `program_token` address
-                    &[],
-                )
-                .expect("close_account"),
-                &[
-                    funder_info.clone(),
-                    spl_token_program_info.clone(),
-                    program_token_info.clone(),
-                ],
-                &[&program_token_signer_seeds],
-            )
-        }
-        Some(2) => {
-            info!("Let's create one associated-program tokens addresses...");
-
+            info!("depositing assets into the vault");
             let account_info_iter = &mut accounts.iter();
 
-            let wallet_address      = next_account_info(account_info_iter)?; // wallet address
-            let ext_spl_token_mint  = next_account_info(account_info_iter)?; // external spl token mint
-            let program_token_info  = next_account_info(account_info_iter)?; // associated account
-            let system_program_info = next_account_info(account_info_iter)?;
-            let mint_info           = next_account_info(account_info_iter)?;
+            let wallet_address          = next_account_info(account_info_iter)?; // wallet address
+            let program_token_info      = next_account_info(account_info_iter)?; // associated account
+            let col_authority_info      = next_account_info(account_info_iter)?;
+
+            let collateral_token_info   = next_account_info(account_info_iter)?;
+            let spl_token_program_info  = next_account_info(account_info_iter)?;
+            let rent_sysvar_info        = next_account_info(account_info_iter)?;
+
+            let rent                    = &Rent::from_account_info(rent_sysvar_info)?;
 
             let (
-                program_token_address,      // Pubkey, valid program address
-                program_token_bump_seed     // u8, bump seed
-            ) =
+                collateral_auth_address,
+                collateral_auth_bump_seed 
+            ) = 
                 Pubkey::find_program_address(
-                    &[
-                         &wallet_address.key.to_bytes(),
-                         &spl_token::id().to_bytes(),
-                         &ext_spl_token_mint.key.to_bytes(),
-                    ], 
-                    &spl_associated_token_account::id(),
+                    &[br"collateral-auth-a"],
+                    program_id,
                 );
-            
-            if program_token_address != *program_token_info.key {
-                info!("Error: program token asset 1 address derivation mismatch");
+
+            if collateral_auth_address != *col_authority_info.key {
+                info!("Error: collateral token mismatch");
                 return Err(ProgramError::InvalidArgument);
             }
 
-            let program_token_signer_seeds: &[&[_]] = &[
-                 &wallet_address.key.to_bytes(),
-                 &spl_token::id().to_bytes(),
-                 &ext_spl_token_mint.key.to_bytes(),
-                 &spl_associated_token_account::id().to_bytes(),
-                 &[program_token_bump_seed],
+            let col_authority_signer_seeds: &[&[_]] = &[
+                br"collateral-auth-a",
+                &[collateral_auth_bump_seed],
             ];
 
-            let funder_info = next_account_info(account_info_iter)?;
-            let spl_token_program_info = next_account_info(account_info_iter)?;
-
-            let rent_sysvar_info = next_account_info(account_info_iter)?;
-            let rent = &Rent::from_account_info(rent_sysvar_info)?;
-
+            // transfer from user wallet to dest reserve
+            // requires approval from user wallet
             // invoke_signed(
-            //     &system_instruction::create_account(
-            //         funder_info.key,
-            //         program_token_info.key,
-            //         1.max(rent.minimum_balance(spl_token::state::Account::get_packed_len())),
-            //         spl_token::state::Account::get_packed_len() as u64,
+            //     &spl_token::instruction::transfer(
             //         &spl_token::id(),
-            //     ),
-            //     &[
-            //         funder_info.clone(),
-            //         program_token_info.clone(),
-            //         system_program_info.clone(),
-            //     ],
-            //     &[&program_token_signer_seeds],
-            // )?;
-
-            // info!("Initializing program token account 1");
-            // invoke(
-            //     &spl_token::instruction::initialize_account(
-            //         &spl_token::id(),
-            //         // &program_token_address,
-            //         program_token_info.key,
-            //         mint_info.key,
-            //         program_token_info.key,
-            //         // &program_token_address, // token owner is also `program_token` address
+            //         wallet_address.key,             // writable
+            //         program_token_info.key,         // writable
+            //         col_authority_info.key,         // signer
+            //         &[],
+            //         1_000_000,
             //     )?,
             //     &[
-            //         program_token_info.clone(),
-            //         // program_token_address.clone(),
-            //         spl_token_program_info.clone(),
-            //         rent_sysvar_info.clone(),
-            //         mint_info.clone(),
+            //         wallet_address.clone(),         // src
+            //         program_token_info.clone(),     // dst
+            //         col_authority_info.clone(),     // mint auth
+            //         spl_token_program_info.clone(), // spl id
             //     ],
-            // )?;
+            //     &[&col_authority_signer_seeds],
+            // );
+            // mint collateral token to user
+            // need to create wallet account for user
+            invoke_signed(
+                &spl_token::instruction::mint_to(
+                    &spl_token::id(),
+                    collateral_token_info.key,
+                    wallet_address.key,
+                    col_authority_info.key,
+                    &[],
+                    1_000_000,
+                )?,
+                &[
+                    collateral_token_info.clone(),  // mint
+                    wallet_address.clone(),         // dst
+                    col_authority_info.clone(),     // mint auth
+                    spl_token_program_info.clone(), // spl id
+                ],
+                &[&col_authority_signer_seeds],
+            );
             Ok(())
         }
         _ => {
@@ -237,13 +204,6 @@ mod test {
         pc.add_program(
             "spl_token",
             spl_token::id(),
-            processor!(spl_token::processor::Processor::process),
-        );
-
-        // Add SPL Token program
-        pc.add_program(
-            "spl_token2",
-            spl_two,
             processor!(spl_token::processor::Processor::process),
         );
 
